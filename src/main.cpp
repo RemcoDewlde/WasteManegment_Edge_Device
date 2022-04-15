@@ -10,31 +10,31 @@ TFT_eSPI tft = TFT_eSPI();
 
 const char *ssid = "RemNet";
 const char *password = "WhyIsThisToWeak@12";
+String LocalIp = "0.0.0.0";
 
 void SerialAndTFTLog(String log);
+void CalibrationRun();
+void drawCross(int x, int y, unsigned int color);
 
 void initWiFi()
 {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  SerialAndTFTLog("[System] Connecting to WiFi ...");
   while (WiFi.status() != WL_CONNECTED)
   {
-    SerialAndTFTLog("[System] Connecting ...");
+    SerialAndTFTLog("[System]: Connecting ...");
     delay(1000);
   }
-  SerialAndTFTLog("[System] " + WiFi.localIP().toString());
-  delay(5000);
+  LocalIp = WiFi.localIP().toString();
+  SerialAndTFTLog("[System]: " + WiFi.localIP().toString());
+  delay(1000);
 }
 
 void setup(void)
 {
-  uint16_t calibrationData[5];
-  uint8_t calDataOK = 0;
-
   Serial.begin(115200);
 
-  SerialAndTFTLog("[System] Starting");
+  SerialAndTFTLog("[System]: Starting");
 
   Serial.println("[System]: initialising TFT display");
   tft.init();
@@ -44,10 +44,44 @@ void setup(void)
   SerialAndTFTLog("[System]: initialising Wifi");
   initWiFi();
 
-  tft.setCursor(20, 0, 2);
-  tft.setTextColor(TFT_BLACK, TFT_WHITE);
-  tft.setTextSize(1);
-  tft.println("calibration run");
+  SerialAndTFTLog("[System]: TFT calibration");
+  CalibrationRun();
+  SerialAndTFTLog("[System]: DONE!");
+
+  // Clear screen
+  tft.fillScreen((0xFFFF));
+
+  // Display Ip in topbar
+  tft.setCursor(0, 0, 2);
+  tft.fillRect(0, 0, tft.width(), 18, TFT_BLACK);
+  tft.print("IP:" + LocalIp);
+}
+
+void loop()
+{
+  uint16_t x, y;
+  static uint16_t color;
+  
+  if (tft.getTouch(&x, &y))
+  {
+    tft.setCursor(5, 40, 2);
+    tft.printf("x: %i     ", x);
+    tft.setCursor(5, 20, 2);
+    tft.printf("y: %i    ", y);
+
+    tft.drawPixel(x, y, color);
+    color += 155;
+  }
+}
+
+void SerialAndTFTLog(String item)
+{
+  Serial.println(item);
+  tft.println(item);
+}
+void CalibrationRun(){
+  uint16_t calibrationData[5];
+  uint8_t calDataOK = 0;
 
   // check file system
   if (!SPIFFS.begin())
@@ -86,33 +120,9 @@ void setup(void)
       f.close();
     }
   }
-
-  tft.fillScreen((0xFFBF));
 }
-
-void loop()
+void drawCross(int x, int y, unsigned int color)
 {
-  uint16_t x, y;
-  static uint16_t color;
-  if (tft.getTouch(&x, &y))
-  {
-    tft.setCursor(5, 40, 2);
-    tft.printf("x: %i     ", x);
-    tft.setCursor(5, 20, 2);
-    tft.printf("y: %i    ", y);
-
-    tft.drawPixel(x, y, color);
-    color += 155;
-  }
+  tft.drawLine(x - 5, y, x + 5, y, color);
+  tft.drawLine(x, y - 5, x, y + 5, color);
 }
-
-void SerialAndTFTLog(String item)
-{
-  Serial.print(item);
-  tft.println(item);
-}
-
-// tft.drawRect(0,0, tft.width(), 20, TFT_BLACK);
-// tft.setCursor(0,0);
-// tft.setTextColor(TFT_WHITE);
-// tft.println("" + WiFi.broadcastIP());

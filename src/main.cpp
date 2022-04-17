@@ -3,6 +3,8 @@
 #include <TFT_eSPI.h>
 #include "WiFi.h"
 #include <string.h>
+#include "time.h"
+
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -10,11 +12,17 @@ TFT_eSPI tft = TFT_eSPI();
 
 const char *ssid = "RemNet";
 const char *password = "WhyIsThisToWeak@12";
+
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 3600;
+const int   daylightOffset_sec = 3600;
+
 String LocalIp = "0.0.0.0";
 
 void SerialAndTFTLog(String log);
 void CalibrationRun();
 void drawCross(int x, int y, unsigned int color);
+void printLocalTime();
 
 void initWiFi()
 {
@@ -46,6 +54,11 @@ void setup(void)
 
   SerialAndTFTLog("[System]: TFT calibration");
   CalibrationRun();
+
+  SerialAndTFTLog("[System]: Setting time");
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  printLocalTime();
+
   SerialAndTFTLog("[System]: DONE!");
 
   // Clear screen
@@ -125,4 +138,13 @@ void drawCross(int x, int y, unsigned int color)
 {
   tft.drawLine(x - 5, y, x + 5, y, color);
   tft.drawLine(x, y - 5, x, y + 5, color);
+}
+void getLocalTime()
+{
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
 }

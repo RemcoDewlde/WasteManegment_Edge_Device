@@ -6,11 +6,21 @@
 #include "time.h"
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
+#include <spiffs/spiffs.hpp>
+#include <battery/battery.hpp>
 
 TFT_eSPI tft = TFT_eSPI();
 AsyncWebServer server(80);
 
 #define CALIBRATION_FILE "/cData"
+
+#define BUTTON_X 52
+#define BUTTON_Y 150
+#define BUTTON_W 20
+#define BUTTON_H 40
+#define BUTTON_SPACING_X 26
+#define BUTTON_SPACING_Y 30
+#define BUTTON_TEXTSIZE 1
 
 // Timer vars
 unsigned long previousMillis = 0;
@@ -22,8 +32,8 @@ const char *passPath = "/pass.txt";
 String ssid;
 String password;
 
-const char* PARAM_INPUT_1 = "ssid";
-const char* PARAM_INPUT_2 = "pass";
+const char *PARAM_INPUT_1 = "ssid";
+const char *PARAM_INPUT_2 = "pass";
 
 // const for Time
 const char *ntpServer = "pool.ntp.org";
@@ -34,15 +44,11 @@ const int daylightOffset_sec = 3600;
 String LocalIp = "0.0.0.0";
 
 // function definitions
-void initSPIFFS();
-void writeFile(fs::FS &fs, const char *path, const char *message);
-String readFile(fs::FS &fs, const char *path);
 void SerialAndTFTLog(String log);
 void CalibrationRun();
 void drawCross(int x, int y, unsigned int color);
 void getLocalTime();
-void initWiFi();
-bool initWiFi2();
+bool initWiFi();
 
 void setup(void)
 {
@@ -63,7 +69,7 @@ void setup(void)
 
   SerialAndTFTLog("[System]: Initialising Wifi");
   // initWiFi();
-  if (!initWiFi2())
+  if (!initWiFi())
   {
     SerialAndTFTLog("[System]: Starting AP mode");
     // NULL sets an open Access Point
@@ -77,14 +83,14 @@ void setup(void)
     SerialAndTFTLog("[System]: 2. Go to the your browser and connect to: ");
     SerialAndTFTLog("[System]: Web browser address: " + IP.toString() + "/setup");
     SerialAndTFTLog("[System]: 3. Submit the wifi credentials");
-    SerialAndTFTLog(" ");
 
     // Web Server Root URL
     server.on("/setup", HTTP_GET, [](AsyncWebServerRequest *request)
               { request->send(SPIFFS, "/wifimanager.html", "text/html"); });
     server.serveStatic("/", SPIFFS, "/");
 
-server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
+    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request)
+              {
 
       int params = request->params();
       for(int i=0;i<params;i++){
@@ -110,14 +116,11 @@ server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
       }
       request->send(200, "text/plain", "Done. ESP will restart");
       delay(3000);
-      ESP.restart();
-    });
+      ESP.restart(); });
     server.begin();
   }
   else
   {
-    SerialAndTFTLog("[System]: Continue normal code");
-
     SerialAndTFTLog("[System]: Setting time");
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     getLocalTime();
@@ -130,25 +133,58 @@ server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
     // Display Ip in topbar
     tft.setCursor(0, 0, 2);
     tft.fillRect(0, 0, tft.width(), 18, TFT_BLACK);
-    tft.print("IP:" + LocalIp);
+    tft.print("IP:" + LocalIp + " | Network: " + WiFi.SSID());
   }
 }
 
 void loop()
 {
+  // TODO: draw this seperately in a function with other usefull info
+  // tft.setCursor(260, 0);
+  // tft.printf("Bat: %i", (int)get_battery_percentage());
+
   uint16_t x, y;
   static uint16_t color;
 
-  if (tft.getTouch(&x, &y))
-  {
-    tft.setCursor(5, 40, 2);
-    tft.printf("x: %i     ", x);
-    tft.setCursor(5, 20, 2);
-    tft.printf("y: %i    ", y);
+  // TFT_eSPI_Button button;
+  // button.initButton(&tft, 60, 60, // x, y, w, h, outline, fill, text
+  //                   60, 60, TFT_WHITE, TFT_BLUE, TFT_WHITE,
+  //                   "test", 1);
 
-    tft.drawPixel(x, y, color);
-    color += 155;
+  // char labesls[2] = {"test1", "test2"};
+
+  TFT_eSPI_Button buttons[3];
+  char buttonlabels[3][5] = {"R", "G", "B"};
+  uint16_t buttoncolors[3] = {ILI9341_RED, ILI9341_GREEN, ILI9341_BLUE};
+
+  for (uint8_t row = 0; row < 3; row++)
+  {
+    for (uint8_t col = 0; col < 3; col++)
+    {
+      buttons[col + row * 3].initButton(&tft, BUTTON_X + col * (BUTTON_W + BUTTON_SPACING_X),
+                                        BUTTON_Y + row * (BUTTON_H + BUTTON_SPACING_Y), // x, y, w, h, outline, fill, text
+                                        BUTTON_W, BUTTON_H, ILI9341_WHITE, buttoncolors[col + row * 3], ILI9341_WHITE,
+                                        buttonlabels[col + row * 3], BUTTON_TEXTSIZE);
+      buttons[col + row * 3].drawButton();
+    }
   }
+
+  bool pressed = tft.getTouch(&x, &y);
+
+  for (uint8_t b = 0; b < 3; b++) {
+    if (pressed && buttons[b].contains(x, y)) {
+      buttons[b].press(true);  // tell the button it is pressed
+      Serial.println("a button is pressed");
+    } else {
+      buttons[b].press(false);  // tell the button it is NOT pressed
+    }
+  }
+
+
+
+  delay(100);
+
+
 }
 
 void SerialAndTFTLog(String item)
@@ -199,11 +235,6 @@ void CalibrationRun()
     }
   }
 }
-void drawCross(int x, int y, unsigned int color)
-{
-  tft.drawLine(x - 5, y, x + 5, y, color);
-  tft.drawLine(x, y - 5, x, y + 5, color);
-}
 void getLocalTime()
 {
   struct tm timeinfo;
@@ -214,8 +245,7 @@ void getLocalTime()
   }
   Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
 }
-
-bool initWiFi2()
+bool initWiFi()
 {
   // false go to ap mode
   ssid = readFile(SPIFFS, ssidPath);
@@ -248,106 +278,4 @@ bool initWiFi2()
   IPAddress IP = WiFi.localIP();
   LocalIp = IP.toString();
   return true;
-}
-
-void initWiFi()
-{
-  AsyncWebServer server(80);
-
-  ssid = readFile(SPIFFS, ssidPath);
-  password = readFile(SPIFFS, passPath);
-
-  if (ssid == "" || password == "")
-  {
-
-    SerialAndTFTLog("[System]: No values saved for ssid or password");
-    WiFi.softAP("ESP-WIFI-MANAGER", "");
-    IPAddress IP = WiFi.softAPIP();
-    SerialAndTFTLog("[System]: AP IP address: " + IP);
-
-    delay(4000);
-
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-              { request->send(SPIFFS, "/index.html", "text/html"); });
-
-    server.serveStatic("/", SPIFFS, "/");
-    SerialAndTFTLog("Web server started");
-    server.begin();
-  }
-  else
-  {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid.c_str(), password.c_str());
-    while (WiFi.status() != WL_CONNECTED)
-    {
-      SerialAndTFTLog("[System]: Connecting ...");
-      delay(1000);
-    }
-    LocalIp = WiFi.localIP().toString();
-    SerialAndTFTLog("[System]: " + WiFi.localIP().toString());
-    delay(1000);
-  }
-}
-
-void initSPIFFS()
-{
-  if (!SPIFFS.begin(true))
-  {
-    Serial.println("An error has occurred while mounting SPIFFS");
-  }
-  File root = SPIFFS.open("/");
-
-  File file = root.openNextFile();
-
-  while (file)
-  {
-
-    Serial.print("FILE: ");
-    Serial.println(file.name());
-    SerialAndTFTLog(file.name());
-    file = root.openNextFile();
-  }
-  Serial.println("SPIFFS mounted successfully");
-}
-
-// Read File from SPIFFS
-String readFile(fs::FS &fs, const char *path)
-{
-  Serial.printf("Reading file: %s\r\n", path);
-
-  File file = fs.open(path);
-  if (!file || file.isDirectory())
-  {
-    Serial.println("- failed to open file for reading");
-    return String();
-  }
-
-  String fileContent;
-  while (file.available())
-  {
-    fileContent = file.readStringUntil('\n');
-    break;
-  }
-  return fileContent;
-}
-
-// Write file to SPIFFS
-void writeFile(fs::FS &fs, const char *path, const char *message)
-{
-  Serial.printf("Writing file: %s\r\n", path);
-
-  File file = fs.open(path, FILE_WRITE);
-  if (!file)
-  {
-    Serial.println("- failed to open file for writing");
-    return;
-  }
-  if (file.print(message))
-  {
-    Serial.println("- file written");
-  }
-  else
-  {
-    Serial.println("- frite failed");
-  }
 }
